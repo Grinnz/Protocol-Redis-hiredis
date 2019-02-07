@@ -21,6 +21,9 @@
          "share",
          "t",
          "xt"
+      ],
+      "namespace" : [
+         "Protocol::Redis::hiredis::Record"
       ]
    },
    "prereqs" : {
@@ -39,6 +42,7 @@
       "runtime" : {
          "requires" : {
             "Alien::hiredis" : "0",
+            "Carp" : "0",
             "FFI::Platypus" : "0",
             "Protocol::Redis" : "0",
             "parent" : "0",

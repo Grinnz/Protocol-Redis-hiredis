@@ -24,6 +24,7 @@ my %WriteMakefileArgs = (
   "NAME" => "Protocol::Redis::hiredis",
   "PREREQ_PM" => {
     "Alien::hiredis" => 0,
+    "Carp" => 0,
     "FFI::Platypus" => 0,
     "Protocol::Redis" => 0,
     "parent" => 0
@@ -47,6 +48,7 @@ my %WriteMakefileArgs = (
 
 my %FallbackPrereqs = (
   "Alien::hiredis" => 0,
+  "Carp" => 0,
   "ExtUtils::MakeMaker" => 0,
   "FFI::Platypus" => 0,
   "File::Spec" => 0,

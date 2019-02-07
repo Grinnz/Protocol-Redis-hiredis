@@ -1,6 +1,7 @@
 requires 'perl' => '5.008001';
 requires 'parent';
 requires 'Alien::hiredis';
+requires 'Carp';
 requires 'FFI::Platypus';
 requires 'Protocol::Redis';
 test_requires 'Protocol::Redis::Test';
