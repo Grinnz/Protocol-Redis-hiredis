@@ -33,7 +33,7 @@ use constant {
 
 our $VERSION = '0.001';
 
-our @CARP_NOT = qw(FFI::Platypus);
+our @CARP_NOT = qw(FFI::Platypus FFI::Platypus::Function);
 
 package
   Protocol::Redis::hiredis::Record::Reader;
@@ -64,14 +64,12 @@ $ffi->type('record(Protocol::Redis::hiredis::Record::Reply)' => 'redisReply');
 
 $ffi->attach_cast('cast_redisReader', 'opaque' => 'redisReader');
 $ffi->attach_cast('cast_redisReply', 'opaque' => 'redisReply');
-$ffi->attach_cast('cast_string_ptr', 'string' => 'opaque');
 
 $ffi->attach(redisReaderCreate => [] => 'opaque');
 $ffi->attach(redisReaderFree => ['opaque'] => 'void');
-$ffi->attach(redisReaderFeed => ['opaque', 'opaque', 'size_t'] => 'int', sub {
+$ffi->attach(redisReaderFeed => ['opaque', 'string', 'size_t'] => 'int', sub {
   my ($xsub, $reader, $str) = @_;
-  my $ptr = cast_string_ptr($str);
-  unless ($xsub->($reader, $ptr, length($str)) == REDIS_OK) {
+  unless ($xsub->($reader, $str, length($str)) == REDIS_OK) {
     croak _reader_error($reader);
   }
 });
