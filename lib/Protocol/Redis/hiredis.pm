@@ -2,18 +2,37 @@ package Protocol::Redis::hiredis;
 
 use strict;
 use warnings;
+use FFI::Platypus;
+use Alien::hiredis;
+
+use parent 'Protocol::Redis';
 
 our $VERSION = '0.001';
+
+my $ffi = FFI::Platypus->new(lib => [Alien::hiredis->dynamic_libs]);
 
 1;
 
 =head1 NAME
 
-Protocol::Redis::hiredis - Module abstract
+Protocol::Redis::hiredis - hiredis based parser compatible with Protocol::Redis
 
 =head1 SYNOPSIS
 
+  use Protocol::Redis::hiredis;
+  my $redis = Protocol::Redis::hiredis->new(api => 1);
+
+  $redis->parse("+foo\r\n");
+  my $message = $redis->get_message;
+
 =head1 DESCRIPTION
+
+This module uses the L<hiredis|https://github.com/redis/hiredis> reply parsing
+API via L<libffi|FFI::Platypus> to implement a faster parsing interface for
+L<Protocol::Redis>. See L<Protocol::Redis> for usage documentation.
+
+This is a low level parsing module, if you are looking to use Redis in Perl,
+try L<Redis>, L<Redis::hiredis>, or L<Mojo::Redis>.
 
 =head1 BUGS
 
@@ -22,6 +41,13 @@ Report any issues on the public bugtracker.
 =head1 AUTHOR
 
 Dan Book <dbook@cpan.org>
+
+=head1 CREDITS
+
+Thanks to Sergey Zasenko <undef@cpan.org> for the original L<Protocol::Redis>
+and defining the API.
+
+Thanks to David Leadbeater <dgl@dgl.cx> for the inspiration to use C<hiredis>.
 
 =head1 COPYRIGHT AND LICENSE
 
@@ -33,3 +59,4 @@ This is free software, licensed under:
 
 =head1 SEE ALSO
 
+L<Protocol::Redis::XS>
