@@ -32,12 +32,6 @@ use constant {
   REDIS_REPLY_ERROR   => 6,
 };
 
-# from FFI::Platypus::Buffer
-use constant _ptr_pack =>
-  $^O eq 'MSWin32' && $Config::Config{archname} =~ /MSWin32-x64/
-  ? 'Q'
-  : 'L!';
-
 our $VERSION = '0.001';
 
 our @CARP_NOT = qw(FFI::Platypus FFI::Platypus::Function);
@@ -69,8 +63,9 @@ my $ffi = FFI::Platypus->new(lib => [Alien::hiredis->dynamic_libs]);
 $ffi->type('record(Protocol::Redis::hiredis::Record::Reader)' => 'redisReader');
 $ffi->type('record(Protocol::Redis::hiredis::Record::Reply)' => 'redisReply');
 
-$ffi->attach_cast('cast_redisReader', 'opaque' => 'redisReader');
-$ffi->attach_cast('cast_redisReply', 'opaque' => 'redisReply');
+$ffi->attach_cast('cast_redisReader', 'pointer' => 'redisReader');
+$ffi->attach_cast('cast_redisReply', 'pointer' => 'redisReply');
+$ffi->attach_cast('deref_ptr', 'pointer' => 'pointer*');
 
 $ffi->attach(redisReaderCreate => [] => 'opaque');
 $ffi->attach(redisReaderFree => ['opaque'] => 'void');
@@ -95,12 +90,14 @@ $ffi->attach(redisReaderGetReply => ['opaque', 'pointer*'] => 'int', sub {
 });
 $ffi->attach(freeReplyObject => ['opaque'] => 'void');
 
-my %sizes = map { ($_ => $ffi->sizeof($_)) } qw(char int pointer size_t), 'long long';
+my %sizes;
+$sizes{$_} = $ffi->sizeof($_) for qw(char int pointer size_t), 'long long';
 
 sub parse {
   my ($self, $str) = @_;
-  redisReaderFeed($self->_reader, $str);
-  while (defined(my $reply = redisReaderGetReply($self->_reader))) {
+  my $reader = $self->_reader;
+  redisReaderFeed($reader, $str);
+  while (defined(my $reply = redisReaderGetReply($reader))) {
     if (defined(my $cb = $self->{_hiredis_message_cb})) {
       $self->$cb($reply);
     } else {
@@ -143,12 +140,11 @@ sub _unwrap_reply {
   } elsif ($type == REDIS_REPLY_INTEGER) {
     $data = $reply->integer;
   } elsif ($type == REDIS_REPLY_ARRAY) {
-    if (my $elements = $reply->elements) {
-      my $ptrs_packed = buffer_to_scalar $reply->element, $elements * $sizes{pointer};
-      my @ptrs = unpack _ptr_pack . $elements, $ptrs_packed;
-      $data = [map { _unwrap_reply($_) } @ptrs];
-    } else {
-      $data = [];
+    my $elements = $reply->elements;
+    my $start_ptr = $reply->element;
+    $data = [];
+    foreach my $i (0..($elements-1)) {
+      push @$data, _unwrap_reply(${deref_ptr($start_ptr + $i * $sizes{pointer})});
     }
   }
   return {type => $type_symbol{$type}, data => $data};
