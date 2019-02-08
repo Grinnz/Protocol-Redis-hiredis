@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Carp 'croak';
 use FFI::Platypus;
+use FFI::Platypus::Buffer;
 use FFI::Platypus::Record;
 use Alien::hiredis;
 
@@ -30,6 +31,12 @@ use constant {
   REDIS_REPLY_STATUS  => 5,
   REDIS_REPLY_ERROR   => 6,
 };
+
+# from FFI::Platypus::Buffer
+use constant _ptr_pack =>
+  $^O eq 'MSWin32' && $Config::Config{archname} =~ /MSWin32-x64/
+  ? 'Q'
+  : 'L!';
 
 our $VERSION = '0.001';
 
@@ -67,32 +74,37 @@ $ffi->attach_cast('cast_redisReply', 'opaque' => 'redisReply');
 
 $ffi->attach(redisReaderCreate => [] => 'opaque');
 $ffi->attach(redisReaderFree => ['opaque'] => 'void');
-$ffi->attach(redisReaderFeed => ['opaque', 'string', 'size_t'] => 'int', sub {
+$ffi->attach(redisReaderFeed => ['opaque', 'pointer', 'size_t'] => 'int', sub {
   my ($xsub, $reader, $str) = @_;
-  unless ($xsub->($reader, $str, length($str)) == REDIS_OK) {
+  utf8::downgrade $str; # ensure bytes
+  my ($pointer, $size) = scalar_to_buffer $str;
+  unless ($xsub->($reader, $pointer, $size) == REDIS_OK) {
     croak _reader_error($reader);
   }
 });
-$ffi->attach(redisReaderGetReply => ['opaque', 'opaque*'] => 'int', sub {
+$ffi->attach(redisReaderGetReply => ['opaque', 'pointer*'] => 'int', sub {
   my ($xsub, $reader) = @_;
-  my $array_ptr;
-  unless ($xsub->($reader, \$array_ptr) == REDIS_OK) {
+  my $reply_ptr;
+  unless ($xsub->($reader, \$reply_ptr) == REDIS_OK) {
     croak _reader_error($reader);
   }
-  return $array_ptr;
+  return undef unless defined $reply_ptr;
+  my $reply = _unwrap_reply($reply_ptr);
+  freeReplyObject($reply_ptr);
+  return $reply;
 });
 $ffi->attach(freeReplyObject => ['opaque'] => 'void');
+
+my %sizes = map { ($_ => $ffi->sizeof($_)) } qw(char int pointer size_t), 'long long';
 
 sub parse {
   my ($self, $str) = @_;
   redisReaderFeed($self->_reader, $str);
   while (defined(my $reply = redisReaderGetReply($self->_reader))) {
-    my $reply_obj = _unwrap_reply($reply);
-    freeReplyObject($reply);
     if (defined(my $cb = $self->{_hiredis_message_cb})) {
-      $self->$cb($reply_obj);
+      $self->$cb($reply);
     } else {
-      push @{$self->{_hiredis_messages}}, $reply_obj;
+      push @{$self->{_hiredis_messages}}, $reply;
     }
   }
 }
@@ -122,19 +134,19 @@ my %type_symbol = (
 );
 
 sub _unwrap_reply {
-  my ($reply) = @_;
-  my $reply_obj = cast_redisReply($reply);
-  my $type = $reply_obj->type;
+  my ($reply_ptr) = @_;
+  my $reply = cast_redisReply($reply_ptr);
+  my $type = $reply->type;
   my $data;
   if ($type == REDIS_REPLY_STATUS or $type == REDIS_REPLY_ERROR or $type == REDIS_REPLY_STRING) {
-    my $str_len = $reply_obj->len;
-    $data = $ffi->cast('opaque', "string($str_len)", $reply_obj->str);
+    $data = buffer_to_scalar $reply->str, $reply->len;
   } elsif ($type == REDIS_REPLY_INTEGER) {
-    $data = $reply_obj->integer;
+    $data = $reply->integer;
   } elsif ($type == REDIS_REPLY_ARRAY) {
-    if (my $num_elements = $reply_obj->elements) {
-      my $elements = $ffi->cast('opaque', "opaque[$num_elements]", $reply_obj->element);
-      $data = [map { _unwrap_reply($_) } @$elements];
+    if (my $elements = $reply->elements) {
+      my $ptrs_packed = buffer_to_scalar $reply->element, $elements * $sizes{pointer};
+      my @ptrs = unpack _ptr_pack . $elements, $ptrs_packed;
+      $data = [map { _unwrap_reply($_) } @ptrs];
     } else {
       $data = [];
     }
